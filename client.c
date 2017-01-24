@@ -19,6 +19,13 @@ char map_height, map_width;
 int players_count = 0;
 Players_t players;
 
+
+void error(const char *msg)
+{
+    perror(msg);
+    exit(0);
+}
+
 void init_screen() {
     initscr(); // Initialize the window
     noecho(); // Don't echo any keypresses
@@ -73,6 +80,8 @@ void refresh_map() {
     draw_map();
 
     Node_t* player = (Node_t*) malloc(sizeof(Node_t));
+    if (!player) 
+        error("ERROR cannot allocate memory for player in refresh_map");
     player = players.head;
 
     init_pair(1, COLOR_RED, COLOR_BLACK); //color for clients pacman or spoke
@@ -125,12 +134,76 @@ void refresh_map() {
 
 }
 
-int key_pressed()
-{
+//Serach player in players array by id. If not found return -1
+Node_t* find_player(int id) {
+
+    Node_t* curr_node = (Node_t*) malloc(sizeof(Node_t));
+    if (!curr_node) 
+        error("ERROR cannot allocate memory for curr_node in find_player");
+    curr_node = players.head;
+
+    while (curr_node != NULL) {
+        if (curr_node->data.id == id) {
+            return curr_node;
+        }
+        else{
+            curr_node = curr_node->next;
+        }
+    }
+    return NULL;
+}
+
+//function prints and updates players score
+void print_score(int id, int score, int x) {
+
+    Node_t* player = (Node_t*) malloc(sizeof(Node_t));
+    if (!player) 
+        error("ERROR cannot allocate memory for player in print_score");
+
+    player = find_player(id);
+    player->data.score = score;
+
+    mvprintw(x, 1, player->data.nick);
+    char message[4];
+    sprintf(message, "%d", score);
+    mvprintw(x, sizeof(player->data.nick) + 1, " ");
+    mvprintw(x + 1, 1, message);
+}
+
+void print_message(int id, char *message) {
+
+    Node_t* player = (Node_t*) malloc(sizeof(Node_t));
+    if (!player) 
+        error("ERROR cannot allocate memory for player in print_score");
+
+    //message from player
+    if (id > 0) {
+        player = find_player(id);
+        mvprintw(map_height + 1, 1, player->data.nick);
+        mvprintw(map_height + 1, sizeof(player->data.nick) + 1, message);
+    }
+    else {
+        //message from server
+        if (id == 0) {
+             mvprintw(map_height + 1, 1, "Server:");
+             mvprintw(map_height + 1, 9, message);
+        }
+    }
+}
+
+//if client starts typing message
+char* write_message() {
+
+    char *message = malloc(256);
+    getstr(message);
+    return message;
+}
+
+int key_pressed() {
     int ch = getch();
 
     if (ch != ERR) {
-        ungetch(ch);
+        ungetch(ch); //return character to queue
         return 1;
     } else {
         return 0;
@@ -138,53 +211,49 @@ int key_pressed()
 }
 
 int make_move() {
-    //TODO: check if wall
     int ch = getch();
     if (ch == '\033') { // if the first value is esc
         getch(); // skip the [
         switch(getch()) { // the real value
             case 'A':
                 // code for arrow up
-                if (players.head->data.y > 0)
+                if (players.head->data.y > 0 && map[players.head->data.x][players.head->data.y-1] != 1)
                     players.head->data.y--;
                 return Up;
                 break;
             case 'B':
                 // code for arrow down
-                if (players.head->data.y < map_height - 1)
+                if (players.head->data.y < map_height - 1 && map[players.head->data.x][players.head->data.y+1] != 1)
                     players.head->data.y++;
                 return Down;
                 break;
             case 'C':
                 // code for arrow right
-                if (players.head->data.x < map_width - 1)
+                if (players.head->data.x < map_width - 1 && map[players.head->data.x+1][players.head->data.y] != 1)
                     players.head->data.x++;
                 return Right;
                 break;
             case 'D':
                 // code for arrow left
-                if (players.head->data.x > 0)
+                if (players.head->data.x > 0 && map[players.head->data.x-1][players.head->data.y] != 1)
                     players.head->data.x--;
                 return Left;
                 break;
         }
     }
     else {
-        if (ch == 'q')
+        if (ch == 'q') //client eneters q to quit
             return 4;
+        if (ch == 'm') //client eneters m to write message
+            return 5;
     }
-}
-
-
-void error(const char *msg)
-{
-    perror(msg);
-    exit(0);
 }
 
 char *get_command_name(char *string)
 {
     char *res = (char*) malloc(256);
+    if (!res) 
+        error("ERROR cannot allocate memory for res in get_command_name");
     int i;
 
     for (i=0; i<strlen(string); i++) {
@@ -202,6 +271,8 @@ char *get_command_name(char *string)
 char *trim(char *string)
 {
     char *res = (char*) malloc(strlen(string));
+    if (!res) 
+        error("ERROR cannot allocate memory for res in trim");
     int i;
 
     for (i=0; i<strlen(string); i++) {
@@ -216,24 +287,6 @@ char *trim(char *string)
     return res;
 }
 
-//Serach player in players array by id. If not found return -1
-Node_t* find_player(int id) {
-
-    Node_t* curr_node = (Node_t*) malloc(sizeof(Node_t));
-    curr_node = players.head;
-
-    while (curr_node != NULL) {
-        if (curr_node->data.id == id) {
-            return curr_node;
-        }
-        else{
-            curr_node = curr_node->next;
-        }
-    }
-    return NULL;
-}
-
-
 int main(int argc, char *argv[])
 {
     int tcp_socket, udp_socket, portno, n;
@@ -241,16 +294,8 @@ int main(int argc, char *argv[])
     struct hostent *server;
     Player_t player;
 
-    // players->head = (Node_t*) malloc(sizeof(Node_t));
-    // players->tail = (Node_t*) malloc(sizeof(Node_t));
     players.head = NULL;
     players.tail = NULL;
-
-    //    for (int i=0; i<MAX_PLAYERS; i++) {
-    //        bzero(players[i].nick, 20);
-    //        players[i].state = Dead;
-    //        players[i].type = Pacman;
-    // }
 
     //Connecting to server
     char buffer[256];
@@ -290,7 +335,6 @@ int main(int argc, char *argv[])
 
         if (strnlen(nick, 20) > 0) {
             strncpy(player.nick, nick, 20);
-            // strncpy(nick, trim(nick), 20);
 
             buffer[0] = 0;
             strncpy(&buffer[1], nick, 20);
@@ -317,6 +361,7 @@ int main(int argc, char *argv[])
                     continue;
                 }
 
+                append(&players, player);
                 players_count++;
                 joined = '1';
                 printf("%s\n", "You are successfully joined to the game");
@@ -333,6 +378,7 @@ int main(int argc, char *argv[])
     char buff[2505];
     bzero(buff, 2505);
     int player_id = 0;
+    int packet_size = 1;
     char player_x;
     char player_y;
     int want_bytes = 0;
@@ -355,6 +401,7 @@ int main(int argc, char *argv[])
 
                     memcpy(&player_id, &buff[0], 4);
                     memcpy(&player.nick, &buff[4], 20);
+
                     //Initialize player
                     player.id = player_id;
                     player.x = -1;
@@ -364,10 +411,13 @@ int main(int argc, char *argv[])
                     append(&players, player);
                     players_count++;
                     bzero(buff, 25);
-                    //refresh_map();
+
+                    refresh_map();
                     break;
+
                 case PLAYER_DISCONNECTED:
                     want_bytes = 0;
+
                     while(want_bytes != 4){
                         n = read(tcp_socket, buff, 4 - want_bytes);
                         if(n == -1){
@@ -376,10 +426,12 @@ int main(int argc, char *argv[])
                         }
                         want_bytes+=n;
                     }
+
                     memcpy(&player_id, &buff[0], 4);
                     remove_node(&players, player_id);
                     bzero(buff, 5);
                     break;
+
                 case START:
                     want_bytes = 0;
                     while(want_bytes != 4){
@@ -396,11 +448,13 @@ int main(int argc, char *argv[])
                     player_y = buff[3];
                     bzero(buff, 4);
                     break;
+
                 case END:
                     bzero(buff, 5);
                     mvprintw(1, 1, "Game Over!");
                     destroy_screen();
                     break;
+
                 case MAP:
                     
                     if (map_width == 0 || map_height == 0) {
@@ -417,12 +471,12 @@ int main(int argc, char *argv[])
                         }
                         want_bytes+=n;
                     }
-                    memcpy(&map, &buff, map_width*map_height);
-                    draw_map();
-                    bzero(buffer,map_width*map_height);
+                    memcpy(&map, &buff, map_width*map_height); //copu map from buffer
+                    draw_map(); //first draw of map
+                    bzero(buffer, map_width*map_height);
                     break;
-                case PLAYERS:
 
+                case PLAYERS:
                     want_bytes = 0;
                     while(want_bytes != 4){
                         n = read(tcp_socket, buff,  4);
@@ -433,12 +487,10 @@ int main(int argc, char *argv[])
                         want_bytes+=n;
                     }
 
-                    int player_id = 0;
-                    int packet_size = 1;
                     float x, y;
                     enum Player_state state;
                     enum Player_type type;
-                    Node_t* curr_player;
+                    Node_t* curr_player; //pointer to player, which sould be updated
 
                     memcpy(&packet_size, &buff, 4);
 
@@ -470,6 +522,83 @@ int main(int argc, char *argv[])
 
                     bzero(buff,packet_size*14 + 4);
                     break;
+
+                case SCORE:
+                    want_bytes = 0;
+                    while(want_bytes != 4){
+                        n = read(tcp_socket, buff,  4);
+                        if(n == -1){
+                            printf("error");
+                            break;
+                        }
+                        want_bytes+=n;
+                    }
+
+                    player_id = 0;
+                    packet_size = 0;
+                    int score = 0;
+                    int i = 2;
+
+                    memcpy(&packet_size, &buff, 4);
+
+                    want_bytes = 0;
+                    while(want_bytes != packet_size*8) {
+                        n = read(tcp_socket, buff, 8);
+                        if(n == -1){
+                            printf("error");
+                            break;
+                        }            
+
+                        memcpy(&score, &buff, 4);  
+                        memcpy(&player_id, &buff[4], 4);   
+                        print_score(player_id, score, map_height+i); 
+                        i += 2;   
+                        want_bytes += n;       
+                    }
+                    bzero(buff,packet_size*14 + 4);
+                    break;
+
+                case MESSAGE:
+                    want_bytes = 0;
+                    while(want_bytes != 4){
+                        n = read(tcp_socket, buff,  4);
+                        if(n == -1){
+                            printf("error");
+                            break;
+                        }
+                        want_bytes+=n;
+                    }
+                    player_id = -1;
+                    memcpy(&player_id, &buff, 4);
+                        
+                    want_bytes = 0;
+                    while(want_bytes != 4){
+                        n = read(tcp_socket, buff,  4);
+                        if(n == -1){
+                            printf("error");
+                            break;
+                        }
+                        want_bytes+=n;
+                    }
+                    packet_size = 0;
+                    memcpy(&packet_size, &buff, 4);
+
+                    char *message = malloc(256); 
+                    want_bytes = 0;
+                    while(want_bytes != packet_size) {
+                        n = read(tcp_socket, buff, packet_size);
+                        if(n == -1){
+                            printf("error");
+                            break;
+                        }            
+                       want_bytes+=n;        
+                    }
+                    memcpy(&message, &buff, packet_size);
+
+                    print_message(player_id, message);
+
+                    bzero(buff,packet_size + 8);
+                    break;
                 default:
                     if (key_pressed()) {
                         char move = make_move();
@@ -492,7 +621,16 @@ int main(int argc, char *argv[])
                                 n = write(tcp_socket, &buff, 6); //send move message to server
                                 if (n < 0)
                                     error("ERROR QUIT writing to socket");
+                                close(tcp_socket);
                             }
+                            // if (move == 5) {
+                            //     // buff[0] = 
+                            //     memcpy(&buff, &players.head->data.id, 4);
+                            //     n = write(tcp_socket, &buff, 6); //send move message to server
+                            //     if (n < 0)
+                            //         error("ERROR QUIT writing to socket");
+                            //     close(tcp_socket);
+                            // }
                         }
                     }
                     break;
@@ -502,162 +640,9 @@ int main(int argc, char *argv[])
             if (n < 0)
                 error("ERROR reading socket");
         }
-        // if (n >= 0) {
-
-        // 	//JOINED packet
-        //  if (enumber == JOINED) {
-        //  	int player_id;
-        //  	if (read(tcp_socket, &player_id, 4) >= 0 ) {
-        //    n = read(tcp_socket, &player.nick, 20);
-        //    if (n >= 0) {
-        //    	player.id = player_id;
-        //    	player.x = -1;
-        //    	player.y = -1;
-        //    	player.state = Dead;
-        // 	player.type = Pacman;
-        // 	append(&players, player);
-        // 	players_count++;
-        // 	refresh_map();
-        //    }
-        //    else
-        //    	error("ERROR reading JOINED player nick");
-        //  	}
-        //  	else
-        //  		error("ERROR reading JOINED player id");
-
-        //  }
-
-        //  //PLAYER_DISCONNECTED packet. Delete player from players list
-        //  if (enumber == PLAYER_DISCONNECTED) {
-
-        //  	int player_id;
-        //  	if (read(tcp_socket, &player_id, 4) >= 0 ) {
-        //    remove_node(&players, player_id);
-        //  	}
-        //  	else
-        //  		error("ERROR reading JOINED player id");
-
-        //  }
-
-        // 	if (enumber == START) {
-
-        // 		char player_x, player_y;
-        //  	if (!(read(tcp_socket, &map_height, 1) >= 0
-        //  		&& read(tcp_socket, &map_width, 1) >= 0
-        //  		&& read(tcp_socket, &player_x, 1) >= 0
-        //  		&& read(tcp_socket, &player_y, 1) >= 0)) {
-        //     		error("ERROR reading from socket");
-        //     	}
-        //     	else {
-        //     		players.head->data.x = player_x;
-        //     		players.head->data.y = player_y;
-        //     		enumber = -1;
-        //     		refresh_map();
-        //     		continue;
-        //     	}
-
-
-        //  }
-
-        //  //END of the game
-        //  if (enumber == END) {
-        //  	//If game ends, then go back and wait until we recieve START packet
-        //  	n = 0;
-        //  	enumber = -1;
-        //  	destroy_screen();
-        //  	continue;
-        //  }
-
-        //  //MAP object
-        //  if (enumber == MAP) {
-        //  	if (read(tcp_socket, &map, map_height*map_width) < 0 ) {
-        //  		error("ERROR reading map");
-        //  	}
-        //  	else {
-        //  		init_screen();
-        // draw_map();
-        //  		enumber = -1;
-        //  		continue;
-        //  	}
-
-        //  }
-
-        //  //PLAYERS packet
-        //  if (enumber == PLAYERS) {
-        //  	int packet_size = 0;
-        //  	if (read(tcp_socket, &packet_size, 4) >= 0 ) {
-        //  		int player_id;
-        //  		float x, y;
-        //  		enum Player_state state;
-        //  		enum Player_type type;
-        //  		Node_t* curr_player;
-
-        //  		for (int i=1; i<=packet_size; i++) {
-        //  			if (read(tcp_socket, &player_id, 4) >= 0 && read(tcp_socket, &x, 4) >= 0 &&
-        //    		read(tcp_socket, &y, 4) >= 0 && read(tcp_socket, &state, 1) >= 0 &&
-        //    		read(tcp_socket, &type, 1) >= 0) {
-        //  				curr_player = find_player(player_id);
-        //  				if (curr_player != NULL) {
-        //    			curr_player->data.x = x;
-        //    			curr_player->data.y = y;
-        //    			curr_player->data.state = state;
-        //    			curr_player->data.type = type;
-        //    		}
-        //    		else
-        //    			error("ERROR player not found");
-        //    	}
-        //    	else
-        //    		error("ERROR reading player packet");
-
-        //    	enumber = -1;
-        //    	refresh_map();
-        //    }
-
-        //  	}
-        //  	else
-        //  		error("ERROR reading players count");
-
-        //  }
-
-        //     if (key_pressed()) {
-        //     	char move = make_move();
-        //        	if (move >= Up && move <= Left) {
-        //        		n = write(tcp_socket, (char *)MOVE, 1); //send MOVE message to server
-        //   	if (n < 0)
-        //      		error("ERROR writing MOVE message to socket");
-        //   	n = write(tcp_socket, &players.head->data.id, 4); //send clients player id to server
-        //  		if (n < 0)
-        //      		error("ERROR MOVE writing player id to socket");
-        //      	n = write(tcp_socket, &move, 1); //send clients player movement to server
-        //  		if (n < 0)
-        //      		error("ERROR MOVE writing player movement to socket");
-        //        		refresh_map();
-        //        	}
-        //        	else {
-        //        		//client wants to quit game
-        //        		if (move == 4) {
-        //        			destroy_screen();
-        //        			//TODO: send quit message to server
-        //        		}
-        //        	}
-        //     }
-
-
-
-        // }
-
-
 
     }
 
-
-    //
-    // bzero(buffer,256);
-    // n = read(con_socket,buffer,255);
-    // if (n < 0)
-    //     error("ERROR reading from socket");
-    // printf("%s\n",buffer);
-    // close(tcp_socket);
-
+    close(tcp_socket);
     return 0;
 }
